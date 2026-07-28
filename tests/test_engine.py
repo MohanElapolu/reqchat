@@ -5,12 +5,12 @@ python -m pytest tests/test_engine.py -v
 """
 
 import torch
-from nanochat.engine import KVCache
+from reqchat.engine import KVCache
 
 def test_kv_cache_resize():
     """
     The KV cache was not resized correctly, more information here:
-    https://github.com/karpathy/nanochat/pull/186
+    https://github.com/mohanelapolu/reqchat/
     This test reproduces the issue and will be merged alongside the fix.
     """
 

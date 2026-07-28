@@ -10,10 +10,10 @@
 # 3) Example launch with wandb logging, but see below for setting up wandb first:
 # WANDB_RUN=speedrun screen -L -Logfile speedrun.log -S speedrun bash speedrun.sh
 
-# Default intermediate artifacts directory is in ~/.cache/nanochat
+# Default intermediate artifacts directory is in ~/.cache/reqchat
 export OMP_NUM_THREADS=1
-export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
-mkdir -p $NANOCHAT_BASE_DIR
+export REQCHAT_BASE_DIR="$HOME/.cache/reqchat"
+mkdir -p $REQCHAT_BASE_DIR
 
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
@@ -43,7 +43,7 @@ fi
 # During the course of the run, we will be writing markdown reports to the report/
 # directory in the base dir. This command clears it out and writes a header section
 # with a bunch of system info and a timestamp that marks the start of the run.
-python -m nanochat.report reset
+python -m reqchat.report reset
 
 # -----------------------------------------------------------------------------
 # Tokenizer
@@ -60,10 +60,10 @@ uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
 # each data shard is ~250M chars
 # so we download 2e9 / 250e6 = 8 data shards at this point
 # each shard is ~100MB of text (compressed), so this is about ~800MB of data on disk
-python -m nanochat.dataset -n 8
+python -m reqchat.dataset -n 8
 # Immediately also kick off downloading more shards in the background while tokenizer trains
 # See comment below for why 240 is the right number here
-python -m nanochat.dataset -n 240 &
+python -m reqchat.dataset -n 240 &
 DATASET_DOWNLOAD_PID=$!
 # train the tokenizer with vocab size 2**16 = 65536 on ~2B characters of data
 python -m scripts.tok_train --max_chars=2000000000
@@ -95,9 +95,9 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_eval
 # -----------------------------------------------------------------------------
 # Midtraining (teach the model conversation special tokens, tool use, multiple choice)
 
-# download 2.3MB of synthetic identity conversations to impart a personality to nanochat
+# download 2.3MB of synthetic identity conversations to impart a personality to reqchat
 # see dev/gen_sft_data.py for details on how this data was prepared and to get a sense of how you can easily tune it
-curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
+curl -L -o $REQCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run midtraining and eval the model
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.mid_train -- --run=$WANDB_RUN
@@ -128,4 +128,4 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.chat_eval -- -
 # -----------------------------------------------------------------------------
 # Generate the full report by putting together all the sections
 # report.md is the output and will be copied to current directory for convenience
-python -m nanochat.report generate
+python -m reqchat.report generate

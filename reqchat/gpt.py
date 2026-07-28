@@ -210,6 +210,65 @@ class GPT(nn.Module):
         num_flops_per_token = 6 * (nparams - nparams_embedding) + 12 * l * h * q * t
         return num_flops_per_token
 
+    def setup_optimizer_adamw(self, unembedding_lr=0.004, embedding_lr=0.2, matrix_lr=0.02, weight_decay=0.0):
+        model_dim = self.config.n_embd
+        ddp, rank, local_rank, world_size = get_dist_info()
+
+        # Separate parameter groups
+        matrix_params = list(self.transformer.h.parameters())
+        embedding_params = list(self.transformer.wte.parameters())
+        lm_head_params = list(self.lm_head.parameters())
+
+        assert len(list(self.parameters())) == (
+            len(matrix_params) +
+            len(embedding_params) +
+            len(lm_head_params)
+        )
+
+        # Scale LR for embedding and output layers
+        dmodel_lr_scale = (model_dim / 768) ** -0.5
+
+        if rank == 0:
+            print(f"Scaling the LR for the AdamW parameters ∝1/√({model_dim}/768) = {dmodel_lr_scale:.6f}")
+
+        adamw_kwargs = dict(
+            betas=(0.8, 0.95),
+            eps=1e-10,
+            weight_decay=weight_decay,
+        )
+
+        # Use standard AdamW on Windows
+        if ddp:
+            AdamWFactory = DistAdamW
+        else:
+            AdamWFactory = torch.optim.AdamW
+
+        # Optimizer for embeddings + lm_head
+        adam_optimizer = AdamWFactory(
+            [
+                dict(params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale),
+                dict(params=embedding_params, lr=embedding_lr * dmodel_lr_scale),
+            ],
+            **adamw_kwargs,
+        )
+
+        # Optimizer for transformer blocks (replaces Muon)
+        matrix_optimizer = AdamWFactory(
+            [
+                dict(params=matrix_params, lr=matrix_lr),
+            ],
+            **adamw_kwargs,
+        )
+
+        optimizers = [adam_optimizer, matrix_optimizer]
+
+        for opt in optimizers:
+            for group in opt.param_groups:
+                group["initial_lr"] = group["lr"]
+
+        return optimizers
+
+
     def setup_optimizers(self, unembedding_lr=0.004, embedding_lr=0.2, matrix_lr=0.02, weight_decay=0.0):
         model_dim = self.config.n_embd
         ddp, rank, local_rank, world_size = get_dist_info()
